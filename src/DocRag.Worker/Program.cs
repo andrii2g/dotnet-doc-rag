@@ -33,4 +33,4 @@ var host = builder.Build();
 
 await host.Services.ApplyDocRagMigrationsAsync();
 
-host.Run();
+await host.RunAsync();
