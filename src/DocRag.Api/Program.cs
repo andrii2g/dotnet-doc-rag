@@ -1,4 +1,6 @@
 using DocRag.Core;
+using DocRag.Api.Endpoints;
+using DocRag.Api.Middleware;
 using DocRag.Infrastructure;
 using DocRag.Infrastructure.Configuration;
 using DocRag.Infrastructure.Database;
@@ -34,11 +36,15 @@ var app = builder.Build();
 
 await app.Services.ApplyDocRagMigrationsAsync();
 
+app.UseDocRagApiKey();
 app.MapOpenApi();
 app.UseSwaggerUI(options =>
 {
     options.RoutePrefix = "docs";
     options.SwaggerEndpoint("/openapi/v1.json", "DocRag API v1");
 });
+app.MapHealthEndpoints();
+app.MapDocumentEndpoints();
+app.MapRagEndpoints();
 
 app.Run();
