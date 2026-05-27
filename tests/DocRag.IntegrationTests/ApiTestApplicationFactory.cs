@@ -12,13 +12,31 @@ namespace DocRag.IntegrationTests;
 public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
 {
     private readonly Dictionary<Guid, DocumentRecord> _documents = [];
+    private readonly string _importRoot = Path.Combine(Path.GetTempPath(), "dotnet-doc-rag-tests", Guid.NewGuid().ToString("N"), "import");
 
     public RecordingChunkRepository ChunkRepository { get; } = new();
     public RecordingManagedFileStorage ManagedFileStorage { get; } = new();
+    public RecordingIngestionJobRepository IngestionJobRepository { get; } = new();
+    public string ImportRoot => _importRoot;
 
     public void SeedDocument(DocumentRecord document)
     {
         _documents[document.Id] = document;
+    }
+
+    public void Reset()
+    {
+        _documents.Clear();
+        ChunkRepository.Reset();
+        ManagedFileStorage.Reset();
+        IngestionJobRepository.Reset();
+
+        if (Directory.Exists(_importRoot))
+        {
+            Directory.Delete(_importRoot, recursive: true);
+        }
+
+        Directory.CreateDirectory(_importRoot);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -31,7 +49,7 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
             {
                 ["ConnectionStrings:Postgres"] = "Host=localhost;Database=doc_rag;Username=postgres;Password=postgres",
                 ["App:StoragePath"] = "storage",
-                ["App:ImportPath"] = "samples",
+                ["App:ImportPath"] = _importRoot,
                 ["App:MaxUploadBytes"] = "10485760",
                 ["App:AllowedExtensions:0"] = ".txt",
                 ["App:AllowedExtensions:1"] = ".md",
@@ -56,10 +74,12 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IDocumentRepository>();
             services.RemoveAll<IChunkRepository>();
+            services.RemoveAll<IIngestionJobRepository>();
             services.RemoveAll<IManagedFileStorage>();
 
             services.AddSingleton<IDocumentRepository>(new InMemoryDocumentRepository(_documents));
             services.AddSingleton<IChunkRepository>(ChunkRepository);
+            services.AddSingleton<IIngestionJobRepository>(IngestionJobRepository);
             services.AddSingleton<IManagedFileStorage>(ManagedFileStorage);
         });
     }
@@ -184,6 +204,11 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
     {
         public List<Guid> DeletedDocumentIds { get; } = [];
 
+        public void Reset()
+        {
+            DeletedDocumentIds.Clear();
+        }
+
         public Task ReplaceChunksAsync(Guid documentId, IReadOnlyList<DocumentChunkToInsert> chunks, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
@@ -197,21 +222,79 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
         }
     }
 
+    public sealed class RecordingIngestionJobRepository : IIngestionJobRepository
+    {
+        public List<Guid> CreatedDocumentIds { get; } = [];
+
+        public void Reset()
+        {
+            CreatedDocumentIds.Clear();
+        }
+
+        public Task CreateAsync(Guid documentId, CancellationToken cancellationToken)
+        {
+            CreatedDocumentIds.Add(documentId);
+            return Task.CompletedTask;
+        }
+
+        public Task<IngestionJobRecord?> ClaimNextAsync(string workerId, CancellationToken cancellationToken)
+            => Task.FromResult<IngestionJobRecord?>(null);
+
+        public Task MarkSucceededAsync(Guid jobId, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task MarkFailedAsync(Guid jobId, string errorMessage, bool retryable, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+    }
+
     public sealed class RecordingManagedFileStorage : IManagedFileStorage
     {
         public List<string> DeletedStoredFileNames { get; } = [];
+        public List<string> PromotedStoredFileNames { get; } = [];
 
-        public Task<StoredFileResult> StoreUploadAsync(Stream source, string originalFileName, string? contentType, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
+        public void Reset()
+        {
+            DeletedStoredFileNames.Clear();
+            PromotedStoredFileNames.Clear();
+        }
 
-        public Task<StoredFileResult> StoreImportFileAsync(string sourcePath, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
+        public async Task<StoredFileResult> StoreUploadAsync(Stream source, string originalFileName, string? contentType, CancellationToken cancellationToken)
+        {
+            var tempFilePath = Path.GetTempFileName();
+            await using var output = File.Create(tempFilePath);
+            await source.CopyToAsync(output, cancellationToken);
+            await output.FlushAsync(cancellationToken);
+            output.Close();
+
+            return await CreateStoredFileResultAsync(tempFilePath, originalFileName, contentType, sourcePath: null, cancellationToken);
+        }
+
+        public async Task<StoredFileResult> StoreImportFileAsync(string sourcePath, CancellationToken cancellationToken)
+        {
+            var tempFilePath = Path.GetTempFileName();
+            await using var source = File.OpenRead(sourcePath);
+            await using var output = File.Create(tempFilePath);
+            await source.CopyToAsync(output, cancellationToken);
+            await output.FlushAsync(cancellationToken);
+            output.Close();
+
+            return await CreateStoredFileResultAsync(tempFilePath, Path.GetFileName(sourcePath), GetContentType(sourcePath), sourcePath, cancellationToken);
+        }
 
         public string CreateStoredFileName(Guid documentId, string extension)
             => $"{documentId:N}{extension}";
 
         public Task PromoteTempFileAsync(string tempFilePath, string storedFileName, CancellationToken cancellationToken)
-            => Task.CompletedTask;
+        {
+            PromotedStoredFileNames.Add(storedFileName);
+
+            if (File.Exists(tempFilePath))
+            {
+                File.Delete(tempFilePath);
+            }
+
+            return Task.CompletedTask;
+        }
 
         public Task DeleteManagedFileAsync(string storedFileName, CancellationToken cancellationToken)
         {
@@ -221,5 +304,42 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
 
         public string GetManagedPath(string storedFileName)
             => Path.Combine("storage", storedFileName);
+
+        private static async Task<StoredFileResult> CreateStoredFileResultAsync(
+            string tempFilePath,
+            string originalFileName,
+            string? contentType,
+            string? sourcePath,
+            CancellationToken cancellationToken)
+        {
+            var fileInfo = new FileInfo(tempFilePath);
+            await using var stream = File.OpenRead(tempFilePath);
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            var hashBytes = await sha.ComputeHashAsync(stream, cancellationToken);
+            var hash = Convert.ToHexString(hashBytes).ToLowerInvariant();
+
+            return new StoredFileResult(
+                originalFileName,
+                tempFilePath,
+                Path.GetExtension(originalFileName).ToLowerInvariant(),
+                contentType,
+                fileInfo.Length,
+                hash,
+                sourcePath);
+        }
+
+        private static string GetContentType(string path)
+        {
+            return Path.GetExtension(path).ToLowerInvariant() switch
+            {
+                ".txt" => "text/plain",
+                ".md" => "text/markdown",
+                ".html" => "text/html",
+                ".csv" => "text/csv",
+                ".pdf" => "application/pdf",
+                ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                _ => "application/octet-stream"
+            };
+        }
     }
 }

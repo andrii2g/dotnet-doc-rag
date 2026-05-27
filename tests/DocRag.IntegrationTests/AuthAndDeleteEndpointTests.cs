@@ -11,6 +11,7 @@ public sealed class AuthAndDeleteEndpointTests : IClassFixture<ApiTestApplicatio
     public AuthAndDeleteEndpointTests(ApiTestApplicationFactory factory)
     {
         _factory = factory;
+        _factory.Reset();
     }
 
     [Fact]
