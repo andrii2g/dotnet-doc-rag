@@ -115,6 +115,7 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
         public Task<IReadOnlyList<DocumentRecord>> ListAsync(int limit, int offset, CancellationToken cancellationToken)
         {
             IReadOnlyList<DocumentRecord> items = _documents.Values
+                .Where(x => x.DeletedAt is null)
                 .OrderByDescending(x => x.CreatedAt)
                 .Skip(offset)
                 .Take(limit)
