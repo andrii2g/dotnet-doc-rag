@@ -4,6 +4,8 @@ using DocRag.Core.Abstractions;
 using DocRag.Infrastructure.Chunking;
 using DocRag.Infrastructure.Database;
 using DocRag.Infrastructure.Documents;
+using DocRag.Infrastructure.Embeddings;
+using DocRag.Infrastructure.Rag;
 using DocRag.Infrastructure.Retrieval;
 using DocRag.Infrastructure.TextExtraction;
 using Npgsql;
@@ -22,6 +24,10 @@ public static class ServiceCollectionExtensions
             throw new InvalidOperationException("ConnectionStrings:Postgres must be configured.");
         }
 
+        services.AddHttpClient("openai", client =>
+        {
+            client.BaseAddress = new Uri("https://api.openai.com/v1/");
+        });
         services.AddSingleton(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
         services.AddSingleton<DatabaseMigrator>();
         services.AddSingleton<IManagedFileStorage, LocalManagedFileStorage>();
@@ -32,9 +38,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITextExtractor, CsvTextExtractor>();
         services.AddSingleton<ITextExtractorResolver, TextExtractorResolver>();
         services.AddSingleton<ITextChunker, SimpleTextChunker>();
+        services.AddScoped<IEmbeddingClient, OpenAiEmbeddingClient>();
+        services.AddScoped<IRagAnswerGenerator, PlaceholderRagAnswerGenerator>();
         services.AddScoped<IDocumentRepository, DocumentRepository>();
         services.AddScoped<IIngestionJobRepository, IngestionJobRepository>();
-        services.AddScoped<IChunkRepository, PlaceholderChunkRepository>();
+        services.AddScoped<IChunkRepository, ChunkRepository>();
 
         return services;
     }
