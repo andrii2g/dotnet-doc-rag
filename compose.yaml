@@ -1,2 +1,89 @@
 name: dotnet-doc-rag
 
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: docrag-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-docrag}
+      POSTGRES_USER: ${POSTGRES_USER:-docrag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docrag}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docrag} -d ${POSTGRES_DB:-docrag}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: src/DocRag.Api/Dockerfile
+    container_name: docrag-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-docrag};Username=${POSTGRES_USER:-docrag};Password=${POSTGRES_PASSWORD:-docrag}
+      App__StoragePath: /app/storage/documents
+      App__ImportPath: /app/import
+      AI__OpenAIApiKey: ${OPENAI_API_KEY}
+      AI__ChatModel: ${AI_CHAT_MODEL:-gpt-5.5}
+      Security__ApiKey: ${DOC_RAG_API_KEY:-}
+      Rag__ChunkTokenSize: ${RAG__CHUNK_TOKEN_SIZE:-800}
+      Rag__ChunkTokenOverlap: ${RAG__CHUNK_TOKEN_OVERLAP:-120}
+      Rag__DefaultTopK: ${RAG__DEFAULT_TOP_K:-8}
+      Rag__MaxTopK: ${RAG__MAX_TOP_K:-20}
+      Rag__DefaultCandidateK: ${RAG__DEFAULT_CANDIDATE_K:-24}
+      Rag__MaxCandidateK: ${RAG__MAX_CANDIDATE_K:-100}
+      Rag__MinSimilarity: ${RAG__MIN_SIMILARITY:-0.20}
+      Rag__HnswEfSearch: ${RAG__HNSW_EF_SEARCH:-100}
+      Rag__MaxContextTokens: ${RAG__MAX_CONTEXT_TOKENS:-6000}
+    volumes:
+      - ./storage:/app/storage
+      - ./samples:/app/import:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/DocRag.Worker/Dockerfile
+    container_name: docrag-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-docrag};Username=${POSTGRES_USER:-docrag};Password=${POSTGRES_PASSWORD:-docrag}
+      App__StoragePath: /app/storage/documents
+      App__ImportPath: /app/import
+      AI__OpenAIApiKey: ${OPENAI_API_KEY}
+      AI__ChatModel: ${AI_CHAT_MODEL:-gpt-5.5}
+      Rag__ChunkTokenSize: ${RAG__CHUNK_TOKEN_SIZE:-800}
+      Rag__ChunkTokenOverlap: ${RAG__CHUNK_TOKEN_OVERLAP:-120}
+      Rag__DefaultTopK: ${RAG__DEFAULT_TOP_K:-8}
+      Rag__MaxTopK: ${RAG__MAX_TOP_K:-20}
+      Rag__DefaultCandidateK: ${RAG__DEFAULT_CANDIDATE_K:-24}
+      Rag__MaxCandidateK: ${RAG__MAX_CANDIDATE_K:-100}
+      Rag__MinSimilarity: ${RAG__MIN_SIMILARITY:-0.20}
+      Rag__HnswEfSearch: ${RAG__HNSW_EF_SEARCH:-100}
+      Rag__MaxContextTokens: ${RAG__MAX_CONTEXT_TOKENS:-6000}
+    volumes:
+      - ./storage:/app/storage
+      - ./samples:/app/import:ro
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
