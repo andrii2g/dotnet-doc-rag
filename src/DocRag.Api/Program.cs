@@ -48,3 +48,5 @@ app.MapDocumentEndpoints();
 app.MapRagEndpoints();
 
 app.Run();
+
+public partial class Program;
