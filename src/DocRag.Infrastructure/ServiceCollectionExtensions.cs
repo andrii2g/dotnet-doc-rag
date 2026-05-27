@@ -1,6 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using DocRag.Core.Abstractions;
 using DocRag.Infrastructure.Database;
+using DocRag.Infrastructure.Documents;
+using DocRag.Infrastructure.Retrieval;
 using Npgsql;
 
 namespace DocRag.Infrastructure;
@@ -19,6 +22,10 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
         services.AddSingleton<DatabaseMigrator>();
+        services.AddSingleton<IManagedFileStorage, LocalManagedFileStorage>();
+        services.AddScoped<IDocumentRepository, PostgresDocumentRepository>();
+        services.AddScoped<IIngestionJobRepository, PostgresIngestionJobRepository>();
+        services.AddScoped<IChunkRepository, PlaceholderChunkRepository>();
 
         return services;
     }
