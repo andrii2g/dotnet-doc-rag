@@ -4,10 +4,13 @@ namespace DocRag.Infrastructure.Database;
 
 public static class MigrationServiceExtensions
 {
-    public static Task ApplyDocRagMigrationsAsync(this IServiceProvider serviceProvider)
+    public static Task ApplyDocRagMigrationsAsync(
+        this IServiceProvider serviceProvider,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(serviceProvider);
 
-        return Task.CompletedTask;
+        var migrator = serviceProvider.GetRequiredService<DatabaseMigrator>();
+        return migrator.ApplyMigrationsAsync(cancellationToken);
     }
 }
