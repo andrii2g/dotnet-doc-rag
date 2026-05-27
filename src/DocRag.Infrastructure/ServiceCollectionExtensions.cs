@@ -39,7 +39,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITextExtractorResolver, TextExtractorResolver>();
         services.AddSingleton<ITextChunker, SimpleTextChunker>();
         services.AddScoped<IEmbeddingClient, OpenAiEmbeddingClient>();
-        services.AddScoped<IRagAnswerGenerator, PlaceholderRagAnswerGenerator>();
+        services.AddScoped<IRagAnswerGenerator, OpenAiRagAnswerGenerator>();
         services.AddScoped<IDocumentRepository, DocumentRepository>();
         services.AddScoped<IIngestionJobRepository, IngestionJobRepository>();
         services.AddScoped<IChunkRepository, ChunkRepository>();
