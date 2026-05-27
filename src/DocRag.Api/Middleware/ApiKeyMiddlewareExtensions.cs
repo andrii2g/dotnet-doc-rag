@@ -18,17 +18,9 @@ public static class ApiKeyMiddlewareExtensions
                 return;
             }
 
-            var path = context.Request.Path;
             var environment = context.RequestServices.GetRequiredService<IWebHostEnvironment>();
 
-            if (path.StartsWithSegments("/health/live") || path.StartsWithSegments("/health/ready"))
-            {
-                await next();
-                return;
-            }
-
-            if (environment.IsDevelopment() &&
-                (path.StartsWithSegments("/docs") || path.StartsWithSegments("/openapi")))
+            if (ApiKeyRequestPolicy.AllowsAnonymous(context.Request.Path, environment.IsDevelopment()))
             {
                 await next();
                 return;
