@@ -1,0 +1,11 @@
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+.dotnet-home/
+.nuget-packages/
+.env
+
+*.user
+*.editorconfig

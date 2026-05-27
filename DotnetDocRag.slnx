@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DocRag.Api/DocRag.Api.csproj" />
+    <Project Path="src/DocRag.Core/DocRag.Core.csproj" />
+    <Project Path="src/DocRag.Infrastructure/DocRag.Infrastructure.csproj" />
+    <Project Path="src/DocRag.Worker/DocRag.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DocRag.IntegrationTests/DocRag.IntegrationTests.csproj" />
+    <Project Path="tests/DocRag.UnitTests/DocRag.UnitTests.csproj" />
+  </Folder>
+</Solution>
