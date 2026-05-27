@@ -4,7 +4,7 @@ using Npgsql;
 
 namespace DocRag.Infrastructure.Documents;
 
-public sealed class PostgresIngestionJobRepository(NpgsqlDataSource dataSource) : IIngestionJobRepository
+public sealed class IngestionJobRepository(NpgsqlDataSource dataSource) : IIngestionJobRepository
 {
     private readonly NpgsqlDataSource _dataSource = dataSource;
 
