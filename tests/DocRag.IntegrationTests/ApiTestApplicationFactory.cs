@@ -1,5 +1,6 @@
 using DocRag.Core.Abstractions;
 using DocRag.Core.Documents;
+using DocRag.Core.Rag;
 using DocRag.Core.Retrieval;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -17,6 +18,8 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
     public RecordingChunkRepository ChunkRepository { get; } = new();
     public RecordingManagedFileStorage ManagedFileStorage { get; } = new();
     public RecordingIngestionJobRepository IngestionJobRepository { get; } = new();
+    public RecordingEmbeddingClient EmbeddingClient { get; } = new();
+    public RecordingRagAnswerGenerator RagAnswerGenerator { get; } = new();
     public string ImportRoot => _importRoot;
 
     public void SeedDocument(DocumentRecord document)
@@ -30,6 +33,8 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
         ChunkRepository.Reset();
         ManagedFileStorage.Reset();
         IngestionJobRepository.Reset();
+        EmbeddingClient.Reset();
+        RagAnswerGenerator.Reset();
 
         if (Directory.Exists(_importRoot))
         {
@@ -74,13 +79,17 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IDocumentRepository>();
             services.RemoveAll<IChunkRepository>();
+            services.RemoveAll<IEmbeddingClient>();
             services.RemoveAll<IIngestionJobRepository>();
             services.RemoveAll<IManagedFileStorage>();
+            services.RemoveAll<IRagAnswerGenerator>();
 
             services.AddSingleton<IDocumentRepository>(new InMemoryDocumentRepository(_documents));
             services.AddSingleton<IChunkRepository>(ChunkRepository);
+            services.AddSingleton<IEmbeddingClient>(EmbeddingClient);
             services.AddSingleton<IIngestionJobRepository>(IngestionJobRepository);
             services.AddSingleton<IManagedFileStorage>(ManagedFileStorage);
+            services.AddSingleton<IRagAnswerGenerator>(RagAnswerGenerator);
         });
     }
 
@@ -203,17 +212,24 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
     public sealed class RecordingChunkRepository : IChunkRepository
     {
         public List<Guid> DeletedDocumentIds { get; } = [];
+        public IReadOnlyList<RetrievedChunk> SearchResults { get; set; } = [];
+        public RetrievalQuery? LastQuery { get; private set; }
 
         public void Reset()
         {
             DeletedDocumentIds.Clear();
+            SearchResults = [];
+            LastQuery = null;
         }
 
         public Task ReplaceChunksAsync(Guid documentId, IReadOnlyList<DocumentChunkToInsert> chunks, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
         public Task<IReadOnlyList<RetrievedChunk>> SearchAsync(RetrievalQuery query, CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<RetrievedChunk>>([]);
+        {
+            LastQuery = query;
+            return Task.FromResult(SearchResults);
+        }
 
         public Task DeleteByDocumentIdAsync(Guid documentId, CancellationToken cancellationToken)
         {
@@ -245,6 +261,45 @@ public sealed class ApiTestApplicationFactory : WebApplicationFactory<Program>
 
         public Task MarkFailedAsync(Guid jobId, string errorMessage, bool retryable, CancellationToken cancellationToken)
             => Task.CompletedTask;
+    }
+
+    public sealed class RecordingEmbeddingClient : IEmbeddingClient
+    {
+        public List<string> Queries { get; } = [];
+        public float[] QueryEmbedding { get; set; } = [0.1f, 0.2f, 0.3f];
+
+        public void Reset()
+        {
+            Queries.Clear();
+            QueryEmbedding = [0.1f, 0.2f, 0.3f];
+        }
+
+        public Task<float[]> EmbedQueryAsync(string input, CancellationToken cancellationToken)
+        {
+            Queries.Add(input);
+            return Task.FromResult(QueryEmbedding);
+        }
+
+        public Task<IReadOnlyList<float[]>> EmbedDocumentsAsync(IReadOnlyList<string> inputs, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<float[]>>(inputs.Select(_ => QueryEmbedding).ToArray());
+    }
+
+    public sealed class RecordingRagAnswerGenerator : IRagAnswerGenerator
+    {
+        public RagAnswer Response { get; set; } = new("I don't know.", [], []);
+        public RagAnswerRequest? LastRequest { get; private set; }
+
+        public void Reset()
+        {
+            Response = new RagAnswer("I don't know.", [], []);
+            LastRequest = null;
+        }
+
+        public Task<RagAnswer> GenerateAsync(RagAnswerRequest request, CancellationToken cancellationToken)
+        {
+            LastRequest = request;
+            return Task.FromResult(Response);
+        }
     }
 
     public sealed class RecordingManagedFileStorage : IManagedFileStorage
